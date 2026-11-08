@@ -1,7 +1,7 @@
 name: Test and build desktop apps
 on:
   push:
-    branches: [main]
+    branches: [main, dev]
     tags: ['v*']
   pull_request:
   workflow_dispatch:
@@ -47,149 +47,55 @@ jobs:
           - os: windows-2022
             target: windows-x64
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        if: runner.os != 'Windows'
+      - name: Linux system dependencies for GPUI
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            pkg-config \
+            libxcb1-dev \
+            libxcb-render0-dev \
+            libxcb-shape0-dev \
+            libxcb-xfixes0-dev \
+            libxkbcommon-dev \
+            libxkbcommon-x11-dev \
+            libwayland-dev \
+            libfontconfig1-dev \
+            libfreetype6-dev \
+            libssl-dev
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
         with:
-          python-version: '3.12'
-      - name: Set up MSYS2 for Windows
-        if: runner.os == 'Windows'
-        uses: msys2/setup-msys2@v2
-        with:
-          msystem: UCRT64
-          update: true
-      - name: Linux GTK dependencies
-        if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y python3-gi python3-gi-cairo gir1.2-gtk-4.0 python3-keyring xvfb xauth dbus-x11
-      - name: macOS GTK dependencies
-        if: runner.os == 'macOS'
-        run: |
-          brew install python@3.14 gtk4 pygobject3
-          brew list pygobject3 --versions
-          brew info pygobject3
-      - name: Install build tools
-        if: runner.os == 'Linux'
-        run: python -m pip install -r requirements-build.txt
-      - name: Windows GTK dependencies
-        if: runner.os == 'Windows'
-        shell: msys2 {0}
-        run: |
-          pacman -S --needed --noconfirm \
-            mingw-w64-ucrt-x86_64-python \
-            mingw-w64-ucrt-x86_64-python-pip \
-            mingw-w64-ucrt-x86_64-python-gobject \
-            mingw-w64-ucrt-x86_64-gtk4
-          python -m pip install --upgrade pip
-          python -m pip install -r requirements-build.txt
-      - name: Tests
-        if: runner.os != 'Windows'
-        run: |
-          if [ "$RUNNER_OS" = Linux ]; then
-            dbus-run-session -- xvfb-run -a /usr/bin/python3 -m unittest discover -v
-          else
-            BREW_PYTHON="$(brew --prefix python@3.14)/bin/python3.14"
-            "$BREW_PYTHON" -c 'import gi; gi.require_version("Gtk", "4.0"); from gi.repository import Gtk; print("GTK", Gtk.get_major_version(), Gtk.get_minor_version())'
-            "$BREW_PYTHON" -m unittest discover -v
-          fi
-      - name: Windows tests
-        if: runner.os == 'Windows'
-        shell: msys2 {0}
-        run: |
-          python -c 'import gi; gi.require_version("Gtk", "4.0"); from gi.repository import Gtk; print("GTK", Gtk.get_major_version(), Gtk.get_minor_version())'
-          python -m unittest discover -v
-      - name: Build application
-        if: runner.os == 'Linux'
-        run: |
-          /usr/bin/python3 -m venv --system-site-packages .venv
-          .venv/bin/python -m pip install -r requirements-build.txt
-          .venv/bin/python -m PyInstaller --noconfirm --clean --onedir --windowed --name Legenda --hidden-import=keyring.backends.SecretService --hidden-import=gi.repository.Gtk --hidden-import=gi.repository.Gdk --hidden-import=gi.repository.Gio --hidden-import=gi.repository.GLib app.py
-          bash scripts/bundle-ca-certificates.sh dist/Legenda/_internal
-          # GI uses the host GTK/GLib stack.  Do not let PyInstaller's copies
-          # of the platform base libraries override that stack on other distros.
-          find dist/Legenda \( -name "libglib-2.0.so*" -o -name "libgobject-2.0.so*" -o -name "libgio-2.0.so*" -o -name "libgmodule-2.0.so*" -o -name "libgirepository-*.so*" -o -name "libmount.so*" -o -name "libblkid.so*" -o -name "libuuid.so*" -o -name "libsystemd.so*" -o -name "libudev.so*" \) -delete
-          rm -rf dist/Legenda/_internal/gio_modules dist/Legenda/gio_modules
-          # PyInstaller adds the bundle to XDG_DATA_DIRS. Never ship the build
-          # host's GLib schemas: they can be older than the host GTK and make
-          # the file chooser abort on newer distributions.
-          rm -rf dist/Legenda/_internal/share/glib-2.0/schemas
-          # Bundle the GTK typelibs instead of relying on the host packages.
-          bash scripts/bundle-gtk-typelibs.sh dist/Legenda/_internal/gi_typelibs
-      - name: Build macOS application
-        if: runner.os == 'macOS'
-        run: |
-          BREW_PYTHON="$(brew --prefix python@3.14)/bin/python3.14"
-          test -x "$BREW_PYTHON"
-          "$BREW_PYTHON" -c 'import gi; gi.require_version("Gtk", "4.0"); from gi.repository import Gtk; print(Gtk.get_major_version(), Gtk.get_minor_version())'
-          "$BREW_PYTHON" -m venv --system-site-packages .venv-macos
-          .venv-macos/bin/python -m pip install --break-system-packages -r requirements-build.txt
-          .venv-macos/bin/python -c 'import gi; gi.require_version("Gtk", "4.0"); from gi.repository import Gtk; print("Bundler GTK", Gtk.get_major_version(), Gtk.get_minor_version())'
-          GTK_DYLIB="$(brew --prefix gtk4)/lib/libgtk-4.1.dylib"
-          test -f "$GTK_DYLIB"
-          .venv-macos/bin/python -m PyInstaller --noconfirm --clean --onedir --windowed --name Legenda --add-binary "$GTK_DYLIB:." --hidden-import=gi.repository.Gtk --hidden-import=gi.repository.Gdk --hidden-import=gi.repository.Gio --hidden-import=gi.repository.GLib app.py
-      - name: Build Windows application
-        if: runner.os == 'Windows'
-        shell: msys2 {0}
-        run: |
-          python scripts/bundle-windows-gtk.py /ucrt64 build/windows-gtk-binaries
-          GTK_BIN_DIR="$(cygpath -m build/windows-gtk-binaries)"
-          python -m PyInstaller --noconfirm --clean --onefile --windowed --name Legenda \
-            --collect-all gi \
-            --add-data "$(cygpath -w /ucrt64/share/glib-2.0/schemas);share/glib-2.0/schemas" \
-            --add-data "$(cygpath -w /ucrt64/lib/girepository-1.0);gi_typelibs" \
-            --add-binary "$GTK_BIN_DIR/*.dll;." \
-            --hidden-import=gi.repository.Gtk \
-            --hidden-import=gi.repository.Gdk \
-            --hidden-import=gi.repository.Gio \
-            --hidden-import=gi.repository.GLib app.py
-          test -s /ucrt64/lib/girepository-1.0/Gtk-4.0.typelib
-          test -s /ucrt64/lib/girepository-1.0/Gdk-4.0.typelib
-          test -s /ucrt64/lib/girepository-1.0/Graphene-1.0.typelib
-      - name: Smoke test Windows executable
-        if: runner.os == 'Windows'
-        shell: pwsh
-        timeout-minutes: 2
-        run: |
-          $env:PATH = ($env:PATH -split ';' | Where-Object { $_ -and $_ -notmatch '(?i)[\\/]msys64[\\/](ucrt64|usr)[\\/]bin' }) -join ';'
-          $env:MSYSTEM = ''
-          $env:MINGW_PREFIX = ''
-          $env:GI_TYPELIB_PATH = ''
-          $env:PYGI_DLL_PATH = ''
-          $output = & dist/Legenda.exe --smoke-test 2>&1
-          $exitCode = $LASTEXITCODE
-          $output | ForEach-Object { Write-Host $_ }
-          if ($exitCode -ne 0) { exit $exitCode }
-          if (($output | Out-String) -match 'Traceback \(most recent call last\)|Unhandled exception|AssertionError') {
-            throw 'GTK smoke test emitted a Python exception.'
-          }
-      - name: Smoke test GTK executable
-        if: runner.os == 'Linux'
-        timeout-minutes: 2
-        run: dbus-run-session -- xvfb-run -a dist/Legenda/Legenda --smoke-test
-      - name: Smoke test macOS executable
-        if: runner.os == 'macOS'
-        timeout-minutes: 2
-        run: env -i HOME="$HOME" TMPDIR="$RUNNER_TEMP" PATH=/usr/bin:/bin:/usr/sbin:/sbin dist/Legenda/Legenda --smoke-test
+          toolchain: 1.88.0
+      - uses: Swatinem/rust-cache@v2
+      - name: Run unit and integration tests
+        run: cargo test --locked
+      - name: Build release binary
+        run: cargo build --release --locked
       - name: Archive Linux
         if: runner.os == 'Linux'
-        run: tar -czf Legenda-${{ matrix.target }}.tar.gz -C dist Legenda
+        run: |
+          mkdir -p dist/Legenda
+          cp target/release/Legenda dist/Legenda/Legenda
+          tar -czf Legenda-${{ matrix.target }}.tar.gz -C dist Legenda
       - name: Archive macOS
         if: runner.os == 'macOS'
-        run: tar -czf Legenda-${{ matrix.target }}.tar.gz -C dist Legenda.app
+        run: |
+          mkdir -p dist/Legenda.app/Contents/MacOS
+          cp target/release/Legenda dist/Legenda.app/Contents/MacOS/Legenda
+          tar -czf Legenda-${{ matrix.target }}.tar.gz -C dist Legenda.app
       - name: Stage Windows executable
         if: runner.os == 'Windows'
         shell: pwsh
-        run: Copy-Item dist/Legenda.exe Legenda-${{ matrix.target }}.exe
+        run: Copy-Item target/release/Legenda.exe Legenda-${{ matrix.target }}.exe
       - name: Build Linux AppImage
         if: runner.os == 'Linux'
         env:
           APPIMAGE_VERSION: ${{ needs.version.outputs.version }}
         run: bash scripts/build-appimage.sh
-      - name: Smoke test AppImage
-        if: runner.os == 'Linux'
-        timeout-minutes: 2
-        run: dbus-run-session -- xvfb-run -a ./Legenda-linux-x64.AppImage --appimage-extract-and-run --smoke-test
       - uses: actions/upload-artifact@v4
         with:
           name: Legenda-${{ matrix.target }}
@@ -197,76 +103,9 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-  linux-distros:
-    needs: build
-    runs-on: ubuntu-22.04
-    timeout-minutes: 15
-    strategy:
-      fail-fast: false
-      matrix:
-        image: ['ubuntu:22.04', 'ubuntu:24.04', 'debian:12', 'fedora:43', 'archlinux:latest', 'opensuse/tumbleweed:latest']
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          name: Legenda-linux-x64
-          path: artifacts
-      - name: Test Linux packages in distribution
-        env:
-          DISTRO: ${{ matrix.image }}
-        run: |
-          docker run --rm -v "$PWD/artifacts:/artifacts:ro" "$DISTRO" sh -ec '
-            if command -v apt-get >/dev/null; then
-              export DEBIAN_FRONTEND=noninteractive
-              apt-get update
-              apt-get install -y xvfb xauth libgtk-4-1 libgirepository-1.0-1 ca-certificates dbus-x11
-            elif command -v dnf >/dev/null; then
-              dnf install -y xorg-x11-server-Xvfb xorg-x11-xauth gtk4 gobject-introspection ca-certificates tar dbus-daemon
-            elif command -v zypper >/dev/null; then
-              zypper --non-interactive refresh
-              zypper --non-interactive install --no-recommends xorg-x11-server-Xvfb xauth libgtk-4-1 gobject-introspection ca-certificates tar dbus-1 dbus-1-daemon google-noto-sans-fonts
-              # The GTK typelibs must come from the AppImage, not from the host.
-              # openSUSE ships them in a package separate from libgtk-4-1.
-              test ! -e /usr/lib64/girepository-1.0/Gtk-4.0.typelib
-              # The Tumbleweed GTK renderer needs a software GL backend under Xvfb.
-              export LIBGL_ALWAYS_SOFTWARE=1
-              export GALLIUM_DRIVER=llvmpipe
-            else
-              pacman -Sy --noconfirm xorg-server-xvfb xorg-xauth python-gobject gtk4 gobject-introspection ca-certificates tar dbus
-            fi
-            tar -xzf /artifacts/Legenda-linux-x64.tar.gz -C /tmp
-            cp /artifacts/Legenda-linux-x64.AppImage /tmp/Legenda.AppImage
-            chmod +x /tmp/Legenda.AppImage
-            cd /tmp
-            Xvfb :99 -screen 0 1280x900x24 &
-            export DISPLAY=:99
-            # Use the software renderer for the headless Xvfb smoke test.
-            export GSK_RENDERER=cairo
-            export GTK_A11Y=none
-            sleep 2
-            ./Legenda.AppImage --appimage-extract >/dev/null
-            test -s squashfs-root/usr/Legenda/_internal/certs/ca-certificates.crt
-            test -s squashfs-root/usr/Legenda/_internal/gi_typelibs/Gtk-4.0.typelib
-            test -s squashfs-root/usr/Legenda/_internal/gi_typelibs/Graphene-1.0.typelib
-            if command -v dbus-run-session >/dev/null; then
-              dbus-run-session -- timeout 60 ./Legenda/Legenda --smoke-test
-              dbus-run-session -- timeout 60 ./squashfs-root/AppRun --smoke-test
-            elif command -v dbus-daemon >/dev/null; then
-              # The Tumbleweed base image contains an empty machine-id file.
-              rm -f /etc/machine-id /var/lib/dbus/machine-id
-              dbus-uuidgen --ensure=/etc/machine-id
-              ln -s /etc/machine-id /var/lib/dbus/machine-id
-              export DBUS_SESSION_BUS_ADDRESS="$(dbus-daemon --session --fork --print-address=1 --print-pid=1 | sed -n '1p')"
-              timeout 60 ./Legenda/Legenda --smoke-test
-              timeout 60 ./squashfs-root/AppRun --smoke-test
-            else
-              timeout 60 ./Legenda/Legenda --smoke-test
-              timeout 60 ./squashfs-root/AppRun --smoke-test
-            fi
-          '
-
   release:
     name: Publish release
-    needs: [version, build, linux-distros]
+    needs: [version, build]
     if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-22.04
     timeout-minutes: 10

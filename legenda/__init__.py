@@ -1,1 +1,0 @@
-"""Subtitle Downloader desktop application."""
