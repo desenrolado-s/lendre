@@ -4,6 +4,7 @@ mod components;
 pub mod file_dialog;
 mod text_input;
 pub mod theme;
+pub mod toast;
 mod view;
 
 use std::sync::LazyLock;
@@ -16,6 +17,7 @@ use gpui::{
 use regex::Regex;
 
 pub use text_input::TextInput;
+pub use toast::{ToastKind, ToastNotification};
 pub use view::LegendaView;
 
 /// Application ID used for desktop integration and credential storage.

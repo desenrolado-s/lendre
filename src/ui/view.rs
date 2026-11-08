@@ -1,11 +1,10 @@
 //! Main GPUI root view state, async workflows, and top-level layout for Legenda.
 
 use std::path::PathBuf;
-use std::time::Duration;
 
 use gpui::{
-    App, Context, Entity, FocusHandle, Focusable, IntoElement, PathPromptOptions, SharedString,
-    Timer, Window, div, prelude::*, px, rgb,
+    App, Context, Entity, FocusHandle, Focusable, IntoElement, PathPromptOptions, ScrollStrategy,
+    SharedString, UniformListScrollHandle, Window, div, prelude::*, px, rgb,
 };
 
 use crate::credentials::{ACCOUNT, SERVICE, decode_credentials, encode_credentials};
@@ -16,21 +15,8 @@ use crate::service::{
 use super::file_dialog::{
     DialogRequest, default_download_dir, is_portal_missing, run_fallback_dialog, suggested_path,
 };
+use super::toast::{ToastKind, ToastNotification};
 use super::{Escape, Submit, TextInput, is_valid_language, theme};
-
-/// How long a toast notification stays visible before dismissing itself.
-const TOAST_DURATION: Duration = Duration::from_millis(4500);
-
-/// Visual style of a toast notification.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ToastKind {
-    /// Neutral information or progress message.
-    Info,
-    /// A completed action, such as a saved subtitle.
-    Success,
-    /// A failure the user should notice.
-    Error,
-}
 
 /// Main GPUI root view for the Legenda desktop application.
 pub struct LegendaView {
@@ -45,10 +31,8 @@ pub struct LegendaView {
     pub results: Vec<SubtitleResult>,
     pub selected_index: Option<usize>,
     pub busy: bool,
-    pub status: SharedString,
-    pub status_kind: ToastKind,
-    pub toast_visible: bool,
-    toast_generation: u64,
+    pub toast: Entity<ToastNotification>,
+    pub results_scroll_handle: UniformListScrollHandle,
     pub show_account: bool,
     pub account_status: SharedString,
     focus_handle: FocusHandle,
@@ -65,6 +49,8 @@ impl LegendaView {
         let key = cx.new(|cx| TextInput::new(cx, initial_key, "Chave API", true));
         let user = cx.new(|cx| TextInput::new(cx, initial_user, "Usuário", false));
         let password = cx.new(|cx| TextInput::new(cx, "", "Senha", true));
+        let toast = cx.new(|_| ToastNotification::new());
+        let results_scroll_handle = UniformListScrollHandle::new();
 
         let view = Self {
             query,
@@ -78,10 +64,8 @@ impl LegendaView {
             results: Vec::new(),
             selected_index: None,
             busy: false,
-            status: SharedString::default(),
-            status_kind: ToastKind::Info,
-            toast_visible: false,
-            toast_generation: 0,
+            toast,
+            results_scroll_handle,
             show_account: false,
             account_status: "Salve para lembrar a conta na próxima abertura.".into(),
             focus_handle: cx.focus_handle(),
@@ -105,33 +89,13 @@ impl LegendaView {
         persistent: bool,
         cx: &mut Context<Self>,
     ) {
-        self.status = message.into();
-        self.status_kind = kind;
-        self.toast_visible = true;
-        self.toast_generation = self.toast_generation.wrapping_add(1);
-        cx.notify();
-
-        if persistent {
-            return;
-        }
-        let generation = self.toast_generation;
-        cx.spawn(async move |this, cx| {
-            Timer::after(TOAST_DURATION).await;
-            let _ = this.update(cx, |this, cx| {
-                if this.toast_generation == generation {
-                    this.toast_visible = false;
-                    cx.notify();
-                }
-            });
-        })
-        .detach();
+        self.toast
+            .update(cx, |toast, cx| toast.show(message, kind, persistent, cx));
     }
 
-    /// Hides the current toast notification immediately.
+    /// Hides the current toast notification with an upward fade-out animation.
     pub fn dismiss_toast(&mut self, cx: &mut Context<Self>) {
-        self.toast_visible = false;
-        self.toast_generation = self.toast_generation.wrapping_add(1);
-        cx.notify();
+        self.toast.update(cx, |toast, cx| toast.dismiss(cx));
     }
 
     fn spawn_load_credentials(cx: &mut Context<Self>) {
@@ -351,6 +315,8 @@ impl LegendaView {
         let count = rows.len();
         self.selected_index = if count > 0 { Some(0) } else { None };
         self.results = rows;
+        self.results_scroll_handle
+            .scroll_to_item(0, ScrollStrategy::Top);
         if count > 0 {
             self.show_toast(
                 format!("{count} arquivos encontrados. Selecione uma versão."),
@@ -562,8 +528,8 @@ impl Render for LegendaView {
             .on_action(cx.listener(|this, _: &Escape, _, cx| {
                 if this.show_account {
                     this.close_settings(cx);
-                } else if this.toast_visible {
-                    this.dismiss_toast(cx);
+                } else if this.toast.read(cx).is_visible() {
+                    this.toast.update(cx, |t, cx| t.dismiss(cx));
                 }
             }))
             .flex()
@@ -595,7 +561,7 @@ impl Render for LegendaView {
                         cx,
                     )),
             )
-            .when(self.toast_visible, |this| this.child(self.render_toast(cx)))
+            .child(self.toast.clone())
             .when(self.show_account, |this| {
                 this.child(self.render_account_modal(cx))
             })

@@ -9,5 +9,6 @@ dist/
 .venv/
 
 *.AppImage
+*.srt
 artifacts/
 packaging/aur-git/
