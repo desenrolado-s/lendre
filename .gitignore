@@ -1,3 +1,4 @@
+/target/
 __pycache__/
 *.pyc
 .env
@@ -8,3 +9,5 @@ dist/
 .venv/
 
 *.AppImage
+artifacts/
+packaging/aur-git/
