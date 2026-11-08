@@ -1,10 +1,11 @@
 //! Main GPUI root view state, async workflows, and top-level layout for Legenda.
 
 use std::path::PathBuf;
+use std::time::Duration;
 
 use gpui::{
     App, Context, Entity, FocusHandle, Focusable, IntoElement, PathPromptOptions, SharedString,
-    Window, div, prelude::*, px, rgb,
+    Timer, Window, div, prelude::*, px, rgb,
 };
 
 use crate::credentials::{ACCOUNT, SERVICE, decode_credentials, encode_credentials};
@@ -12,7 +13,24 @@ use crate::service::{
     ProviderKind, SubtitleResult, download as download_subtitle, search as search_subtitles,
 };
 
+use super::file_dialog::{
+    DialogRequest, default_download_dir, is_portal_missing, run_fallback_dialog, suggested_path,
+};
 use super::{Escape, Submit, TextInput, is_valid_language, theme};
+
+/// How long a toast notification stays visible before dismissing itself.
+const TOAST_DURATION: Duration = Duration::from_millis(4500);
+
+/// Visual style of a toast notification.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ToastKind {
+    /// Neutral information or progress message.
+    Info,
+    /// A completed action, such as a saved subtitle.
+    Success,
+    /// A failure the user should notice.
+    Error,
+}
 
 /// Main GPUI root view for the Legenda desktop application.
 pub struct LegendaView {
@@ -28,6 +46,9 @@ pub struct LegendaView {
     pub selected_index: Option<usize>,
     pub busy: bool,
     pub status: SharedString,
+    pub status_kind: ToastKind,
+    pub toast_visible: bool,
+    toast_generation: u64,
     pub show_account: bool,
     pub account_status: SharedString,
     focus_handle: FocusHandle,
@@ -57,7 +78,10 @@ impl LegendaView {
             results: Vec::new(),
             selected_index: None,
             busy: false,
-            status: "Digite um título para começar.".into(),
+            status: SharedString::default(),
+            status_kind: ToastKind::Info,
+            toast_visible: false,
+            toast_generation: 0,
             show_account: false,
             account_status: "Salve para lembrar a conta na próxima abertura.".into(),
             focus_handle: cx.focus_handle(),
@@ -68,6 +92,46 @@ impl LegendaView {
         }
 
         view
+    }
+
+    /// Shows `message` as a toast notification in the top-right corner.
+    ///
+    /// The toast dismisses itself after a few seconds unless `persistent` is `true`
+    /// (used for in-progress messages that are replaced when the task finishes).
+    pub fn show_toast(
+        &mut self,
+        message: impl Into<SharedString>,
+        kind: ToastKind,
+        persistent: bool,
+        cx: &mut Context<Self>,
+    ) {
+        self.status = message.into();
+        self.status_kind = kind;
+        self.toast_visible = true;
+        self.toast_generation = self.toast_generation.wrapping_add(1);
+        cx.notify();
+
+        if persistent {
+            return;
+        }
+        let generation = self.toast_generation;
+        cx.spawn(async move |this, cx| {
+            Timer::after(TOAST_DURATION).await;
+            let _ = this.update(cx, |this, cx| {
+                if this.toast_generation == generation {
+                    this.toast_visible = false;
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
+    }
+
+    /// Hides the current toast notification immediately.
+    pub fn dismiss_toast(&mut self, cx: &mut Context<Self>) {
+        self.toast_visible = false;
+        self.toast_generation = self.toast_generation.wrapping_add(1);
+        cx.notify();
     }
 
     fn spawn_load_credentials(cx: &mut Context<Self>) {
@@ -89,10 +153,12 @@ impl LegendaView {
                 Ok(None) => {}
                 Err(_) => {
                     let _ = this.update(cx, |this, cx| {
-                        this.status =
-                            "Cofre indisponível. Você pode informar as credenciais em Conta."
-                                .into();
-                        cx.notify();
+                        this.show_toast(
+                            "Cofre indisponível. Você pode informar as credenciais em Conta.",
+                            ToastKind::Error,
+                            false,
+                            cx,
+                        );
                     });
                 }
             }
@@ -119,6 +185,8 @@ impl LegendaView {
     }
 
     /// Opens the native platform file picker to choose a local video file.
+    ///
+    /// Falls back to `zenity`/`kdialog` when the xdg-desktop-portal FileChooser is missing.
     pub fn choose_video(&mut self, cx: &mut Context<Self>) {
         if self.busy {
             return;
@@ -140,14 +208,34 @@ impl LegendaView {
                         }
                     }
                     Ok(None) => {}
+                    Err(err) if is_portal_missing(&err.to_string()) => {
+                        let _ = this.update(cx, |this, cx| this.choose_video_fallback(cx));
+                    }
                     Err(err) => {
                         let _ = this.update(cx, |this, cx| {
-                            this.status = err.to_string().into();
-                            cx.notify();
+                            this.show_toast(err.to_string(), ToastKind::Error, false, cx);
                         });
                     }
                 }
             }
+        })
+        .detach();
+    }
+
+    fn choose_video_fallback(&mut self, cx: &mut Context<Self>) {
+        let request = DialogRequest::Open {
+            title: "Selecionar vídeo".to_string(),
+        };
+        let bg_task = cx
+            .background_executor()
+            .spawn(async move { run_fallback_dialog(&request) });
+        cx.spawn(async move |this, cx| {
+            let outcome = bg_task.await;
+            let _ = this.update(cx, |this, cx| match outcome {
+                Ok(Some(path)) => this.set_video(path, cx),
+                Ok(None) => {}
+                Err(err) => this.show_toast(err, ToastKind::Error, false, cx),
+            });
         })
         .detach();
     }
@@ -234,8 +322,12 @@ impl LegendaView {
         let key = self.key.read(cx).text().trim().to_string();
 
         if (title.is_empty() && self.video.is_none()) || !is_valid_language(&lang) {
-            self.status = "Informe título ou vídeo e um idioma válido.".into();
-            cx.notify();
+            self.show_toast(
+                "Informe título ou vídeo e um idioma válido.",
+                ToastKind::Error,
+                false,
+                cx,
+            );
             return None;
         }
 
@@ -259,12 +351,21 @@ impl LegendaView {
         let count = rows.len();
         self.selected_index = if count > 0 { Some(0) } else { None };
         self.results = rows;
-        self.status = if count > 0 {
-            format!("{count} arquivos encontrados. Selecione uma versão.").into()
+        if count > 0 {
+            self.show_toast(
+                format!("{count} arquivos encontrados. Selecione uma versão."),
+                ToastKind::Success,
+                false,
+                cx,
+            );
         } else {
-            "Nenhum resultado. Tente outro título ou idioma.".into()
-        };
-        cx.notify();
+            self.show_toast(
+                "Nenhum resultado. Tente outro título ou idioma.",
+                ToastKind::Info,
+                false,
+                cx,
+            );
+        }
     }
 
     /// Runs a subtitle search in the background executor.
@@ -274,8 +375,7 @@ impl LegendaView {
         };
 
         self.busy = true;
-        self.status = "Aguarde…".into();
-        cx.notify();
+        self.show_toast("Buscando legendas…", ToastKind::Info, true, cx);
 
         let video_for_task = video.clone();
         let lang_for_task = lang.clone();
@@ -289,8 +389,7 @@ impl LegendaView {
                 Ok(rows) => this.apply_search_results(video, lang, rows, cx),
                 Err(err) => {
                     this.busy = false;
-                    this.status = err.into();
-                    cx.notify();
+                    this.show_toast(err, ToastKind::Error, false, cx);
                 }
             });
         })
@@ -303,6 +402,7 @@ impl LegendaView {
             return;
         }
         let Some(idx) = self.selected_index else {
+            self.show_toast("Selecione uma legenda primeiro.", ToastKind::Info, false, cx);
             return;
         };
         let Some(selected) = self.results.get(idx).cloned() else {
@@ -316,38 +416,77 @@ impl LegendaView {
         if selected.provider == ProviderKind::OpenSubtitles
             && (key.is_empty() || user.is_empty() || password.is_empty())
         {
-            self.status = "Para esta fonte, preencha chave, usuário e senha em Conta.".into();
-            cx.notify();
+            self.show_toast(
+                "Para esta fonte, preencha chave, usuário e senha em Conta.",
+                ToastKind::Error,
+                false,
+                cx,
+            );
             return;
         }
 
         if let Some(video_path) = &self.search_video {
             let target = video_path.with_extension(format!("{}.srt", self.search_language));
             self.save_to_path(selected, target, key, user, password, cx);
-        } else {
-            let suggested = format!("legenda.{}.srt", self.search_language);
-            let initial_dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-            let rx = cx.prompt_for_new_path(&initial_dir, Some(&suggested));
-            cx.spawn(async move |this, cx| {
-                if let Ok(result) = rx.await {
-                    match result {
-                        Ok(Some(path)) => {
-                            let _ = this.update(cx, |this, cx| {
-                                this.save_to_path(selected, path, key, user, password, cx);
-                            });
-                        }
-                        Ok(None) => {}
-                        Err(err) => {
-                            let _ = this.update(cx, |this, cx| {
-                                this.status = err.to_string().into();
-                                cx.notify();
-                            });
-                        }
+            return;
+        }
+
+        let suggested = format!("legenda.{}.srt", self.search_language);
+        let initial_dir = default_download_dir();
+        let rx = cx.prompt_for_new_path(&initial_dir, Some(&suggested));
+        cx.spawn(async move |this, cx| {
+            if let Ok(result) = rx.await {
+                match result {
+                    Ok(Some(path)) => {
+                        let _ = this.update(cx, |this, cx| {
+                            this.save_to_path(selected, path, key, user, password, cx);
+                        });
+                    }
+                    Ok(None) => {}
+                    Err(err) if is_portal_missing(&err.to_string()) => {
+                        let _ = this.update(cx, |this, cx| {
+                            let target = suggested_path(&initial_dir, &suggested);
+                            this.save_with_fallback_dialog(selected, target, key, user, password, cx);
+                        });
+                    }
+                    Err(err) => {
+                        let _ = this.update(cx, |this, cx| {
+                            this.show_toast(err.to_string(), ToastKind::Error, false, cx);
+                        });
                     }
                 }
-            })
-            .detach();
-        }
+            }
+        })
+        .detach();
+    }
+
+    /// Asks for a destination with `zenity`/`kdialog`; if no helper is installed, saves the
+    /// subtitle directly to `default_target` (inside the Downloads folder).
+    fn save_with_fallback_dialog(
+        &mut self,
+        selected: SubtitleResult,
+        default_target: PathBuf,
+        key: String,
+        user: String,
+        password: String,
+        cx: &mut Context<Self>,
+    ) {
+        let request = DialogRequest::Save {
+            title: "Salvar legenda".to_string(),
+            suggested: default_target.clone(),
+        };
+        let bg_task = cx
+            .background_executor()
+            .spawn(async move { run_fallback_dialog(&request) });
+        cx.spawn(async move |this, cx| {
+            let outcome = bg_task.await;
+            let _ = this.update(cx, |this, cx| match outcome {
+                Ok(Some(path)) => this.save_to_path(selected, path, key, user, password, cx),
+                Ok(None) => {}
+                Err(_) => this.save_to_path(selected, default_target, key, user, password, cx),
+            });
+        })
+        .detach();
     }
 
     fn save_to_path(
@@ -360,14 +499,17 @@ impl LegendaView {
         cx: &mut Context<Self>,
     ) {
         if path.exists() {
-            self.status = "O arquivo já existe. Escolha outro nome.".into();
-            cx.notify();
+            self.show_toast(
+                format!("O arquivo já existe: {}. Escolha outro nome.", path.display()),
+                ToastKind::Error,
+                false,
+                cx,
+            );
             return;
         }
 
         self.busy = true;
-        self.status = "Aguarde…".into();
-        cx.notify();
+        self.show_toast("Baixando legenda…", ToastKind::Info, true, cx);
 
         let bg_task = cx.background_executor().spawn(async move {
             download_subtitle(&selected, &path, &key, &user, &password)
@@ -378,14 +520,14 @@ impl LegendaView {
             let _ = this.update(cx, |this, cx| {
                 this.busy = false;
                 match outcome {
-                    Ok(saved) => {
-                        this.status = format!("Salva: {}", saved.display()).into();
-                    }
-                    Err(err) => {
-                        this.status = err.into();
-                    }
+                    Ok(saved) => this.show_toast(
+                        format!("Salva: {}", saved.display()),
+                        ToastKind::Success,
+                        false,
+                        cx,
+                    ),
+                    Err(err) => this.show_toast(err, ToastKind::Error, false, cx),
                 }
-                cx.notify();
             });
         })
         .detach();
@@ -420,6 +562,8 @@ impl Render for LegendaView {
             .on_action(cx.listener(|this, _: &Escape, _, cx| {
                 if this.show_account {
                     this.close_settings(cx);
+                } else if this.toast_visible {
+                    this.dismiss_toast(cx);
                 }
             }))
             .flex()
@@ -449,14 +593,9 @@ impl Render for LegendaView {
                         false,
                         |this, _, cx| this.download(cx),
                         cx,
-                    ))
-                    .child(
-                        div()
-                            .text_size(px(13.0))
-                            .text_color(rgb(theme::TEXT_MUTED))
-                            .child(self.status.clone()),
-                    ),
+                    )),
             )
+            .when(self.toast_visible, |this| this.child(self.render_toast(cx)))
             .when(self.show_account, |this| {
                 this.child(self.render_account_modal(cx))
             })

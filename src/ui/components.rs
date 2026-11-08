@@ -4,7 +4,10 @@ use gpui::{Context, ElementId, IntoElement, SharedString, Window, div, prelude::
 
 use crate::service::SubtitleResult;
 
-use super::{theme, view::LegendaView};
+use super::{
+    theme,
+    view::{LegendaView, ToastKind},
+};
 
 impl LegendaView {
     pub(crate) fn render_button(
@@ -250,6 +253,66 @@ impl LegendaView {
                         |this, _, cx| this.close_settings(cx),
                         cx,
                     )),
+            )
+    }
+
+    /// Floating toast notification anchored to the top-right corner, below the header.
+    pub(crate) fn render_toast(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+        let accent = match self.status_kind {
+            ToastKind::Info => rgb(theme::ACCENT),
+            ToastKind::Success => rgb(theme::TOAST_SUCCESS),
+            ToastKind::Error => rgb(theme::TOAST_ERROR),
+        };
+
+        div()
+            .id("toast")
+            .absolute()
+            .top(px(72.0))
+            .right(px(24.0))
+            .w(px(380.0))
+            .max_w(px(460.0))
+            .flex()
+            .items_start()
+            .gap(px(10.0))
+            .rounded(px(10.0))
+            .border_1()
+            .border_color(rgb(theme::BORDER_DEFAULT))
+            .bg(rgb(theme::BG_TOAST))
+            .shadow_lg()
+            .px(px(14.0))
+            .py(px(12.0))
+            .child(
+                div()
+                    .flex_none()
+                    .w(px(4.0))
+                    .h(px(19.0))
+                    .rounded(px(2.0))
+                    .bg(accent),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .min_w(px(0.0))
+                    .overflow_x_hidden()
+                    .text_size(px(13.5))
+                    .line_height(px(19.0))
+                    .text_color(rgb(theme::TEXT_PRIMARY))
+                    .child(self.status.clone()),
+            )
+            .child(
+                div()
+                    .id("toast-close")
+                    .flex_none()
+                    .cursor_pointer()
+                    .px(px(6.0))
+                    .py(px(1.0))
+                    .rounded(px(6.0))
+                    .text_size(px(13.0))
+                    .line_height(px(18.0))
+                    .text_color(rgb(theme::TEXT_MUTED))
+                    .hover(|style| style.text_color(rgb(theme::TEXT_PRIMARY)))
+                    .on_click(cx.listener(|this, _, _, cx| this.dismiss_toast(cx)))
+                    .child("✕"),
             )
     }
 

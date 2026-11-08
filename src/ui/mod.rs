@@ -1,6 +1,7 @@
 //! GPUI desktop interface for Legenda.
 
 mod components;
+pub mod file_dialog;
 mod text_input;
 pub mod theme;
 mod view;

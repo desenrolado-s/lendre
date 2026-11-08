@@ -38,6 +38,13 @@ pub const BORDER_DEFAULT: u32 = 0x35373d;
 /// Hover border color for secondary controls (`#484a52`).
 pub const BORDER_HOVER: u32 = 0x484a52;
 
+/// Toast notification surface background (`#202227`).
+pub const BG_TOAST: u32 = 0x202227;
+/// Accent stripe for successful toast notifications (`#8fd19e`).
+pub const TOAST_SUCCESS: u32 = 0x8fd19e;
+/// Accent stripe for error toast notifications (`#f28b82`).
+pub const TOAST_ERROR: u32 = 0xf28b82;
+
 /// Semi-transparent modal backdrop scrim.
 pub fn modal_backdrop() -> Hsla {
     hsla(0.0, 0.0, 0.0, 0.65)
