@@ -2,13 +2,13 @@
 
 <h1>LEGENDA</h1>
 
-<p><strong>Baixe legendas do OpenSubtitles e de fontes públicas em uma interface GTK 4 nativa, rápida e sem distrações.</strong></p>
+<p><strong>Baixe legendas do OpenSubtitles e de fontes públicas em uma interface nativa acelerada por GPU escrita em Rust com GPUI.</strong></p>
 
 <p>
-  <a href="https://github.com/desenrolado-s/Subtitle-Downloader/actions/workflows/gtk.yml"><img src="https://github.com/desenrolado-s/Subtitle-Downloader/actions/workflows/gtk.yml/badge.svg" alt="GTK migration validation"></a>
+  <a href="https://github.com/desenrolado-s/Subtitle-Downloader/actions/workflows/build.yml"><img src="https://github.com/desenrolado-s/Subtitle-Downloader/actions/workflows/build.yml/badge.svg" alt="Build and test"></a>
   <a href="https://github.com/desenrolado-s/Subtitle-Downloader/releases/latest"><img src="https://img.shields.io/github/v/release/desenrolado-s/Subtitle-Downloader?label=release" alt="Última release"></a>
-  <a href="https://www.python.org/"><img src="https://img.shields.io/badge/python-3.12%2B-3776AB?logo=python&logoColor=white" alt="Python 3.12+"></a>
-  <a href="https://www.gtk.org/"><img src="https://img.shields.io/badge/GTK-4-4A86CF?logo=gtk&logoColor=white" alt="GTK 4"></a>
+  <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/Rust-2024-DEA584?logo=rust&logoColor=white" alt="Rust 2024"></a>
+  <a href="https://gpui.rs/"><img src="https://img.shields.io/badge/GPUI-0.2-084CCF" alt="GPUI"></a>
   <a href="#requisitos"><img src="https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-3776AB" alt="Linux, macOS e Windows"></a>
 </p>
 
@@ -16,46 +16,43 @@
 
 ## Visão geral
 
-LEGENDA é um aplicativo desktop para Linux, macOS e Windows que pesquisa e baixa legendas do OpenSubtitles e de fontes públicas. A interface usa GTK 4 e executa as operações de rede em segundo plano, mantendo a janela responsiva.
+LEGENDA é um aplicativo desktop para Linux, macOS e Windows escrito em **Rust** que pesquisa e baixa legendas do OpenSubtitles e de fontes públicas. A interface utiliza **GPUI** (o framework de interface acelerado por GPU do Zed) e executa todas as operações de rede em segundo plano, mantendo a janela responsiva.
 
-O vídeo nunca é enviado ao serviço. A busca usa o hash do arquivo quando ele está vinculado e, se necessário, recorre ao título.
+O vídeo nunca é enviado ao serviço. A busca usa o hash de 64 bits do arquivo quando ele está vinculado e, se necessário, recorre ao título.
 
 ## Recursos
 
 - Busca por título ou por hash do vídeo.
 - Vínculo opcional de um arquivo de vídeo local.
-- Filtro por idioma, como `pt-br`, `pt`, `en` e `es`.
-- Download em SRT com validação de conteúdo e gravação atômica.
-- Credenciais guardadas no cofre seguro do sistema.
-- Interface escura, minimalista e nativa em GTK 4.
+- Filtro por idioma, como `pt-br`, `pt`, `en`, `es` e `ja`.
+- Download em SRT com validação de conteúdo e gravação atômica sem sobrescrita.
+- Credenciais guardadas no cofre seguro do sistema (Secret Service via `oo7` no Linux, Keychain no macOS e Credential Manager no Windows).
+- Interface escura, minimalista e acelerada por GPU com **GPUI**.
 
 ## Requisitos
 
-- Linux com X11 ou Wayland, macOS ou Windows 10/11 64 bits.
-- Python 3.12 ou superior.
-- GTK 4 e PyGObject.
-- `keyring` e um cofre de credenciais do sistema. No Linux, use Secret Service, como GNOME Keyring ou KWallet.
+- Linux com Wayland ou X11 (Vulkan), macOS ou Windows 10/11 64 bits.
+- Rust 1.88+ (`cargo` e `rustc`).
+- Cofre de credenciais do sistema (no Linux, Secret Service como GNOME Keyring ou KWallet).
 - Conta e chave de API do OpenSubtitles, apenas para o catálogo OpenSubtitles.
 
-## Instalação
+## Compilação e execução
 
-Clone o repositório e execute o aplicativo:
+Clone o repositório e execute o aplicativo com Cargo:
 
 ```sh
 git clone https://github.com/desenrolado-s/Subtitle-Downloader.git
 cd Subtitle-Downloader
-python3 app.py
+cargo run --release
 ```
 
-Instale as dependências do sistema conforme a sua distribuição:
+Para compilar no Linux, instale as bibliotecas de desenvolvimento do sistema conforme a sua distribuição:
 
 | Distribuição | Comando |
 | --- | --- |
-| Arch Linux | `sudo pacman -S python-gobject gtk4 python-keyring` |
-| Ubuntu / Debian | `sudo apt install python3-gi python3-gi-cairo gir1.2-gtk-4.0 python3-keyring` |
-| Fedora | `sudo dnf install python3-gobject gtk4 python3-keyring` |
-
-As bibliotecas GTK precisam vir do sistema. Em um ambiente virtual, use `--system-site-packages` para que o Python consiga importar o PyGObject.
+| Arch Linux | `sudo pacman -S base-devel pkgconf libxcb libxkbcommon wayland fontconfig freetype2 vulkan-icd-loader` |
+| Ubuntu / Debian | `sudo apt install build-essential pkg-config libxcb1-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libfontconfig1-dev libfreetype6-dev libssl-dev` |
+| Fedora | `sudo dnf install gcc pkgconf-pkg-config libxcb-devel libxkbcommon-devel libxkbcommon-x11-devel wayland-devel fontconfig-devel freetype-devel openssl-devel` |
 
 ## Atualizações do AppImage
 
@@ -65,14 +62,7 @@ Cada release publica um arquivo `.zsync` estável em:
 https://github.com/desenrolado-s/Subtitle-Downloader/releases/latest/download/Legenda-linux-x64.AppImage.zsync
 ```
 
-O AppImage tem essa informação de atualização embutida, então é possível baixar apenas os blocos que mudaram com o `AppImageUpdate` ou o `appimageupdatetool` do projeto [AppImageUpdate](https://github.com/AppImageCommunity/AppImageUpdate/releases):
-
-```sh
-chmod +x appimageupdatetool-*.AppImage
-./appimageupdatetool-*.AppImage ./Legenda-linux-x64*.AppImage
-```
-
-Também é possível abrir o AppImage baixado na interface gráfica do `AppImageUpdate`.
+O AppImage tem essa informação de atualização embutida, permitindo baixar apenas os blocos alterados com o `AppImageUpdate` ou `appimageupdatetool`.
 
 ## Configuração da conta
 
@@ -81,113 +71,54 @@ Também é possível abrir o AppImage baixado na interface gráfica do `AppImage
 3. Abra **Conta** na barra superior e informe chave, usuário e senha.
 4. Se quiser manter os dados entre sessões, use **Salvar no cofre**.
 
-A chave e o usuário também podem ser definidos pelas variáveis de ambiente `OPENSUBTITLES_API_KEY` e `OPENSUBTITLES_USERNAME`. A senha é solicitada apenas na interface e nunca é gravada em texto puro. Sem um cofre disponível, as credenciais valem somente para a sessão atual.
+A chave e o usuário também podem ser definidos pelas variáveis de ambiente `OPENSUBTITLES_API_KEY` e `OPENSUBTITLES_USERNAME`. A senha é solicitada apenas na interface e nunca é gravada em texto puro.
 
 ## Fontes sem chave de API
 
-Para episódios de séries, o app também consulta o **Gestdown**, uma API pública que fornece legendas do catálogo Addic7ed por HTTPS, sem chave ou conta. Ela cobre os idiomas que você informar, inclusive `en`, `pt` e `pt-br`, conforme disponibilidade. Vincule um vídeo cujo nome contenha o episódio, por exemplo `Minha.Serie.S01E02.mkv`, ou pesquise por `Minha Série S01E02`.
-
-Também há o **Subtitulamos.tv**, fonte pública sem conta para episódios de TV em inglês e português (incluindo português brasileiro). Use `en`, `pt` ou `pt-br`; assim como no Gestdown, informe o episódio no título ou vincule um vídeo que tenha `S01E02` no nome.
-
-O **Podnapisi** complementa a busca pública com filmes e séries, sem chave, para inglês, português, japonês, espanhol, francês, alemão, italiano, coreano, russo e chinês. Os arquivos são verificados antes de serem salvos.
-
-Para animes, o app consulta o **AJATT / Kitsunekko**, catálogo público de legendas japonesas atualizado regularmente. Pesquise pelo título com o idioma `ja`; a fonte oferece arquivos `.srt` japoneses sem conta ou chave de API. Os resultados indicam a fonte e podem ser baixados sem preencher **Conta**.
-
-O Gestdown é voltado para episódios de TV e a disponibilidade varia por idioma e release. Para filmes ou buscas somente por título, configure a conta OpenSubtitles para acessar seu catálogo.
+- **Gestdown**: API pública que fornece legendas do catálogo Addic7ed por HTTPS para episódios de séries (`Minha.Serie.S01E02.mkv` ou `Minha Série S01E02`), sem chave ou conta.
+- **Subtitulamos.tv**: Fonte pública sem conta para episódios de TV em inglês (`en`) e português (`pt`, `pt-br`).
+- **Podnapisi**: Busca pública multilíngue para filmes e séries (`en`, `pt`, `ja`, `es`, `fr`, `de`, `it`, `ko`, `ru`, `zh`), com extração segura de arquivos `.srt`.
+- **AJATT / Kitsunekko**: Catálogo público de legendas japonesas (`.srt`) para animes com o idioma `ja`.
 
 ## Como usar
 
 1. Digite o nome do filme ou da série. Vincular um vídeo é opcional.
 2. Ajuste o idioma se necessário.
-3. Clique em **Buscar legendas** e selecione uma versão na lista.
-4. Clique em **Baixar selecionada**.
+3. Clique em **Buscar legendas →** (ou pressione `Enter`) e selecione uma versão na lista.
+4. Clique em **Baixar selecionada ↓**.
 
-Com um vídeo vinculado, a legenda é salva ao lado dele no formato `filme.pt-br.srt`, reconhecido por players como VLC e mpv. Sem vídeo, o aplicativo abre o diálogo **Salvar como**.
-
-## Como a busca funciona
-
-1. Se houver um vídeo vinculado com pelo menos 128 KiB, o aplicativo calcula o hash e procura uma correspondência exata.
-2. Se o hash não retornar resultados, a busca é feita pelo título.
-3. A lista mostra a primeira página de resultados, ordenada por número de downloads. Refine o título quando necessário.
-
-Downloads do OpenSubtitles exigem usuário e senha. Os resultados de Gestdown, Subtitulamos.tv, Podnapisi e AJATT não exigem credenciais. O aplicativo recusa links que não usam HTTPS, valida o conteúdo como SRT e não sobrescreve legendas existentes.
-
-A disponibilidade, a sincronização e os limites diários dependem do catálogo e do plano da conta no OpenSubtitles. Nenhum catálogo contém legendas para todos os vídeos.
+Com um vídeo vinculado, a legenda é salva ao lado dele no formato `filme.pt-br.srt`, reconhecido por players como VLC e mpv. Sem vídeo, o aplicativo abre o diálogo nativo **Salvar como**.
 
 ## Estrutura do projeto
 
 | Caminho | Responsabilidade |
 | --- | --- |
-| `app.py` | Ponto de entrada GTK e tratamento do modo `--smoke-test`. |
-| `legenda/ui.py` | Janela GTK 4, diálogo de conta e coordenação das tarefas em segundo plano. |
-| `legenda/service.py` | Busca e download independentes da interface. |
-| `legenda/provider.py` | Cliente REST do OpenSubtitles e mensagens de erro. |
-| `legenda/gestdown.py` | Fonte pública Gestdown/Addic7ed para episódios de TV, sem chave de API. |
-| `legenda/subtitulamos.py` | Fonte pública Subtitulamos.tv para episódios em inglês e português, sem chave de API. |
-| `legenda/podnapisi.py` | Fonte pública multilíngue para filmes e séries, sem chave de API. |
-| `legenda/ajatt.py` | Catálogo AJATT/Kitsunekko de legendas japonesas para anime, sem chave de API. |
-| `legenda/files.py` | Hash do vídeo, validação do SRT e gravação atômica. |
-| `legenda/credentials.py` | Leitura e gravação das credenciais no cofre seguro do sistema. |
-| `tests/test_*.py` | Testes de arquivos, API, serviço, credenciais e interface GTK. |
+| `src/main.rs` | Ponto de entrada do executável `Legenda` e modo `--smoke-test`. |
+| `src/lib.rs` | Exportação dos módulos da biblioteca `legenda`. |
+| `src/ui.rs` | Interface desktop em GPUI, componentes de entrada, modal de conta e tarefas assíncronas. |
+| `src/service.rs` | Coordenação de busca e download independente da interface. |
+| `src/provider.rs` | Cliente REST do OpenSubtitles e tratamento de erros HTTP. |
+| `src/gestdown.rs` | Fonte pública Gestdown/Addic7ed para episódios de TV. |
+| `src/subtitulamos.rs` | Fonte pública Subtitulamos.tv para episódios em inglês e português. |
+| `src/podnapisi.rs` | Fonte pública multilíngue Podnapisi para filmes e séries. |
+| `src/ajatt.rs` | Catálogo público AJATT/Kitsunekko de legendas japonesas para anime. |
+| `src/files.rs` | Cálculo do hash de 64 bits do vídeo, validação de SRT e gravação atômica. |
+| `src/credentials.rs` | Serialização e armazenamento das credenciais no cofre seguro do sistema. |
+| `tests/integration.rs` | Testes de integração de versionamento, busca multi-provedor e armazenamento. |
 | `packaging/linux/` | Arquivo `.desktop` e ícones do aplicativo. |
-| `scripts/build-appimage.sh` | Empacotamento do AppImage. |
-| `scripts/next-version.sh` | Cálculo da próxima versão de release. |
-| `.github/workflows/build.yml` | Testes, builds de Linux/macOS e publicação de releases. |
-| `.github/workflows/gtk.yml` | Validação da interface GTK e do AppImage no GitHub Actions. |
+| `scripts/build-appimage.sh` | Empacotamento do binário Rust em AppImage. |
+| `.github/workflows/build.yml` | Testes, builds nativos para Linux/macOS/Windows e publicação de releases. |
 
 ## Testes
 
-Execute a suíte completa:
+Execute a suíte completa de testes unitários e de integração:
 
 ```sh
-python3 -m unittest discover -v
+cargo test
 ```
 
-Os testes da interface GTK são ignorados quando não há display. Para executá-los em um ambiente headless:
+Para executar o teste rápido de abertura e renderização da janela GPUI:
 
 ```sh
-dbus-run-session -- xvfb-run -a python3 -m unittest discover -v
+cargo run -- --smoke-test
 ```
-
-## Build e empacotamento
-
-Para gerar um executável local com PyInstaller:
-
-```sh
-python3 -m venv --system-site-packages .venv
-.venv/bin/python -m pip install -r requirements-build.txt
-.venv/bin/python -m unittest discover -v
-.venv/bin/python -m PyInstaller --noconfirm --clean --onedir --windowed --name Legenda \
-  --hidden-import=keyring.backends.SecretService \
-  --hidden-import=gi.repository.Gtk \
-  --hidden-import=gi.repository.Gdk \
-  --hidden-import=gi.repository.Gio \
-  --hidden-import=gi.repository.GLib app.py
-bash scripts/bundle-ca-certificates.sh dist/Legenda/_internal
-```
-
-O resultado fica em `dist/Legenda`. Para gerar o AppImage no Ubuntu 22.04:
-
-```sh
-bash scripts/build-appimage.sh
-```
-
-O script produz `Legenda-linux-x64.AppImage` e baixa a versão `continuous` do `appimagetool`, que não é fixada por hash. O workflow `gtk.yml` executa os testes, empacota o aplicativo, testa o binário e publica o artefato `Legenda-GTK-linux-x64.AppImage`.
-
-O workflow `build.yml` executa os testes e empacota Linux x64, macOS ARM64 e Windows x64. A cada push na `main`, ele calcula a próxima versão automaticamente (`2.0.8` → `2.0.9`, `2.0.9` → `2.1.0`, `2.9.9` → `3.0.0`), cria a tag `v*` e publica a GitHub Release. Tags `v*` enviadas manualmente também publicam os pacotes.
-
-Os nomes dos arquivos publicados incluem a tag da release, por exemplo `Legenda-linux-x64-v2.0.3.AppImage`. O link direto da release mais recente também usa esse nome:
-
-```text
-https://github.com/desenrolado-s/Subtitle-Downloader/releases/latest/download/Legenda-linux-x64-v2.0.3.AppImage
-```
-
-Substitua `v2.0.3` pela tag exibida na release desejada.
-
-## Estado atual e limitações
-
-- A interface GTK é a versão atual. O empacotamento oficial cobre Linux x64 e macOS ARM64; Windows não é suportado no momento.
-- A release `v1.0.1` corresponde à versão anterior com Tkinter. Novas tags usam o empacotamento GTK.
-- O AppImage é x86_64, usa como base Ubuntu 22.04/glibc 2.35 e não tem compatibilidade garantida com distribuições anteriores, Alpine/musl ou Linux ARM.
-- Os pacotes não são assinados nem notarizados.
-- O download real depende de credenciais válidas e dos limites da conta OpenSubtitles.

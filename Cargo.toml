@@ -1,0 +1,27 @@
+[package]
+name = "legenda"
+version = "2.1.2"
+edition = "2024"
+description = "Search and download subtitles from OpenSubtitles and public sources with a native GPUI interface"
+license = "MIT"
+repository = "https://github.com/desenrolado-s/Subtitle-Downloader"
+
+[lib]
+name = "legenda"
+path = "src/lib.rs"
+
+[[bin]]
+name = "Legenda"
+path = "src/main.rs"
+
+[dependencies]
+gpui = "0.2.2"
+regex = "1.11"
+roxmltree = "0.20"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tempfile = "3.14"
+unicode-segmentation = "1.12"
+ureq = { version = "2.12", features = ["json"] }
+url = "2.5"
+zip = { version = "2.2", default-features = false, features = ["deflate"] }
